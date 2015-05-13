@@ -34,7 +34,7 @@
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("CS 111 RAM Disk");
 // EXERCISE: Pass your names into the kernel as the module's authors.
-MODULE_AUTHOR("Skeletor");
+MODULE_AUTHOR("Brett Chalabian and Chul Hee Woo");
 
 #define OSPRD_MAJOR	222
 
@@ -62,6 +62,10 @@ typedef struct osprd_info {
 	wait_queue_head_t blockq;       // Wait queue for tasks blocked on
 					// the device lock
 
+
+	int write_num;			// Number of processes reading
+	int read_num;			// Number of processes writing
+	
 	/* HINT: You may want to add additional fields to help
 	         in detecting deadlock. */
 
@@ -124,7 +128,6 @@ static void osprd_process_request(osprd_info_t *d, struct request *req)
 
 	if (req->current_nr_sectors > nsectors)
 	{
-		error(1, 0, "More than nsectors requested");
 		end_request(req, 0);
 		return;
 	}
@@ -134,15 +137,14 @@ static void osprd_process_request(osprd_info_t *d, struct request *req)
 
 	if (rq_data_dir(req) == READ)
 	{
-		memcpy(d->data + requestSector, req->buffer, requestSize);
+		memcpy(req->buffer, d->data + requestSector, requestSize);
 	}
 	else if (rq_data_dir(req) == WRITE)
 	{
-		memcpy(req->buffer, d->data + requestSector, requestSize);
+		memcpy(d->data + requestSector, req->buffer, requestSize);
 	}
 	else
 	{
-		error(1, 0, "Not a Read or Write request");
 		end_request(req, 0);
 		return;
 	}
@@ -209,7 +211,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 	// Set 'r' to the ioctl's return value: 0 on success, negative on error
 
 	if (cmd == OSPRDIOCACQUIRE) {
-
+		
 		// EXERCISE: Lock the ramdisk.
 		//
 		// If *filp is open for writing (filp_writable), then attempt
