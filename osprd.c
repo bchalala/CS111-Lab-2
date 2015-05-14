@@ -447,6 +447,15 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				d->write_num = 0;
 				return -EDEADLK;
 			}
+
+			if (checkItem(d->read_lock_list, current->pid))
+			{	
+				d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
+				d->read_num--;
+				osp_spin_unlock(&d->mutex);
+				return -EDEADLK;
+			}
+
 			osp_spin_unlock(&d->mutex);			
 			
 			// Waits until its ticket is up and there are no other writers
@@ -560,7 +569,15 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				osp_spin_unlock(&d->mutex);
 				return -EBUSY;
 			}
-					
+			
+				
+			if (checkItem(d->read_lock_list, current->pid))
+			{	
+				d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
+				d->read_num--;
+				osp_spin_unlock(&d->mutex);
+				return -EBUSY;
+			}
 			
 			if (d->write_num > 0)
 			{
