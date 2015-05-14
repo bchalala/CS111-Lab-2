@@ -370,13 +370,57 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		else
 		{
 			// check for dead lock here
+			if (d->write_num > 0 && current->pid == write_lock_pid)
+			{
+				d->write_num = 0;
+				return -EDEADLK;
+			}
 			osp_spin_unlock(&d->mutex);			
+			
+			// Waits until its ticket is up and there are no other writers
+			if (wait_event_interruptible(d->blockq, write_num == 0 && local_ticket == d->ticket_tail)
+			{
+				// Locks because the osprd_info is being changed.
+				osp_spin_lock(&d->mutex);
+	
+				// case where it recieves an interrupt signal
+				if (d->ticket_tail == local_ticket)
+				{
+					d->ticket_tail++;
+					while(checkItem(d->used_tickets, d->ticket_tail))
+						d->ticket_tail++;
+
+				}
+				else
+				{
+					d->used_tickets = insertItem(d->used_tickets, local_ticket);
+				}
+				
+				osp_spin_unlock(&d->mutex);
+				
+				return -ERESTARTSYS;
+			}	
+			
+			osp_spin_lock(&d->mutex);
+			
+			// Adds to the read lock list and increments the counter.
+			d->read_num++;
+			read_lock_list = insertItem(read_lock_list, current->pid);
+			
+			filp->f_flags |= F_OSPRD_LOCKED;
+
 	
 		}
 		/* block to check condition */
-			
+					
+		d->ticket_tail++;
+		while(checkItem(d->used_tickets, d->ticket_tail))
+			d->ticket_tail++;
 
-
+		osp_spin_unlock(&d->mutex);
+		
+		wake_up_all(d->blockq);
+		return 0;
 
 	} else if (cmd == OSPRDIOCTRYACQUIRE) {
 
