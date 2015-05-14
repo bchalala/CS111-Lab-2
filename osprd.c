@@ -72,7 +72,9 @@ typedef struct osprd_info {
 	int read_num;			// Number of processes writing
 					
 	pid_t write_lock_pid;		// There can only be a single write lock
-	p_node_t* read_lock_list;	// The list of all read locks 
+	p_node_t* read_lock_list;	// The list of all read locks
+
+	p_node_t* used_tickets;		// Used ticket list. Makes sure nothing hangs forever  
 		
 	/* HINT: You may want to add additional fields to help
 	         in detecting deadlock. */
@@ -359,8 +361,18 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 		/* Check for deadlock implementation here... */
 
-		osp_spin_unlock(&d->mutex);	
 
+		if (filp_writable)
+		{
+			// check for dead lock here
+			osp_spin_unlock(&d->mutex);
+		}	
+		else
+		{
+			// check for dead lock here
+			osp_spin_unlock(&d->mutex);			
+	
+		}
 		/* block to check condition */
 			
 
@@ -411,6 +423,7 @@ static void osprd_setup(osprd_info_t *d)
 	d->read_num = 0;
 	d->write_lock_pid = -1;
 	d->read_lock_list = NULL;
+	d->used_tickets = NULL;
 }
 
 
