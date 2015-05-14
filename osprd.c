@@ -346,8 +346,18 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// be protected by a spinlock; which ones?)
 
 		// Your code here (instead of the next two lines).
+		
+		osp_spin_lock(&d->mutex);
+		
 		int local_ticket = d->ticket_head;
-		d->ticket_head++;		
+		d->ticket_head++;
+
+		/* Check for deadlock implementation here... */
+
+		osp_spin_unlock(&d->mutex);	
+
+		/* block to check condition */
+			
 
 
 
