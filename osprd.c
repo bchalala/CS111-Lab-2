@@ -366,14 +366,41 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		{
 			// check for dead lock here
 			osp_spin_unlock(&d->mutex);
+
+			if (wait_event_interruptible(d->blockq,
+						      d->ticket_tail == local_ticket && 
+						      d->write_num == 0 && d->read_num == 0 )
+			{
+				osp_spin_lock(&d->mutex);
+	
+				// received signal and must exit
+				if (d->ticket_tail == local_ticket)
+				{
+					d->ticket_tail++;
+					while(checkItem(d->used_tickets,ticket_tail))
+						d->ticket_tail++;
+				}
+				else // add to list of exited tickets
+					d->used_tickets = insertItem(d->used_tickets, local_ticket);
+
+				osp_spin_unlock(&d->mutex);
+
+				return -ERESTARTSYS;
+			}
+
+			osp_spin_lock(&d->mutex);
+			
+			filp->f_flags |= F_OSPRD_LOCKED;		//ACQUIRE LOCK
+			d->write_num++; d->write_lock_pid = current->pid;  // update write lock info
+	
 		}	
 		else
 		{
 			// check for dead lock here
-			osp_spin_unlock(&d->mutex);			
+			osp_spin_unlock(&d->mutex);
+			
 	
 		}
-		/* block to check condition */
 			
 
 
