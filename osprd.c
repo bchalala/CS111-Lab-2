@@ -361,6 +361,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 		if (filp_writable)
 		{
+			eprintk("TRYING FOR WRITE LOCK\n");
 			// Check for deadlock - unlock and return
 			if (d->write_lock_pid == current->pid)
 			{
@@ -374,12 +375,18 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			}
 
 			osp_spin_unlock(&d->mutex);
-
+			
+			eprintk("BEFORE WAITBLOCK\n");
+			eprintk("%d\n", d->ticket_tail);
+			eprintk("%d\n", local_ticket);
+			eprintk("write num is %d\n", d->write_num);
+			eprintk("read num is %d\n", d->read_num);
+		
 			if (wait_event_interruptible(d->blockq,
 						      d->ticket_tail == local_ticket && 
 						      d->write_num == 0 && d->read_num == 0 ))
 			{
-				osp_spin_lock(&d->mutex);
+				//osp_spin_lock(&d->mutex);
 	
 				// received signal and must exit
 				if (d->ticket_tail == local_ticket)
@@ -391,19 +398,22 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				else // add to list of exited tickets
 					d->used_tickets = insertItem(d->used_tickets, local_ticket);
 
-				osp_spin_unlock(&d->mutex);
+				//osp_spin_unlock(&d->mutex);
 
 				return -ERESTARTSYS;
 			}
+			eprintk("AFTER WAITBLOCK\n");
 
 			osp_spin_lock(&d->mutex);
 			
 			filp->f_flags |= F_OSPRD_LOCKED;		//ACQUIRE LOCK
-			d->write_num++; d->write_lock_pid = current->pid;  // update write lock info
+			d->write_num = 1; d->write_lock_pid = current->pid;  // update write lock info
+			eprintk("GOT THE WRITE LOCK\n");
 	
 		}	
 		else
 		{
+			eprintk("TRYING FOR READ LOCK");
 			// check for dead lock here
 			if (d->write_num > 0 && current->pid == d->write_lock_pid)
 			{
@@ -434,8 +444,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				osp_spin_unlock(&d->mutex);
 				
 				return -ERESTARTSYS;
-			}	
-			osp_spin_unlock(&d->mutex);
+			}
 	
 		
 			
@@ -446,6 +455,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			d->read_lock_list = insertItem(d->read_lock_list, current->pid);
 			
 			filp->f_flags |= F_OSPRD_LOCKED;
+			eprintk("GOT THE READ LOCK");
 
 	
 		}
@@ -458,7 +468,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		osp_spin_unlock(&d->mutex);
 		
 		wake_up_all(&d->blockq);
-		r = 0;
+		return 0;
 
 	} else if (cmd == OSPRDIOCTRYACQUIRE) {
 
@@ -474,7 +484,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		r = -ENOTTY;
 
 	} else if (cmd == OSPRDIOCRELEASE) {
-
+		eprintk("TRYING TO RELEASE");
 		// EXERCISE: Unlock the ramdisk.
 		//
 		// If the file hasn't locked the ramdisk, return -EINVAL.
@@ -493,25 +503,27 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		if (d->write_num > 0 && current->pid == d->write_lock_pid)
 		{
 			d->write_num = 0; d->write_lock_pid = -1;
-			//filp->f_flags &= ~F_OSPRD_LOCKED;
+			filp->f_flags &= ~F_OSPRD_LOCKED;
 		}
-		else if (checkItem(d->read_lock_list, current->pid)) 
+		if (checkItem(d->read_lock_list, current->pid)) 
 		{
 			d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
 			d->read_num--;
-			//filp->f_flags &= ~F_OSPRD_LOCKED;
-		}
-		//else
-		//{
-		//	osp_spin_unlock(&d->mutex);
-		//	return -EINVAL;	
-		//}
-		if (d->read_num == 0 && d->write_num == 0)
 			filp->f_flags &= ~F_OSPRD_LOCKED;
+		}
+		else
+		{
+			osp_spin_unlock(&d->mutex);
+			return -EINVAL;	
+		}
+
+		//if (d->read_num == 0 && d->write_num == 0)
+		//	filp->f_flags &= ~F_OSPRD_LOCKED;
 
 		osp_spin_unlock(&d->mutex);
 		
 		r = 0;
+		wake_up_all(&d->blockq);
 
 	} else
 		r = -ENOTTY; /* unknown command */
