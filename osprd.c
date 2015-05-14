@@ -46,7 +46,7 @@ static int nsectors = 32;
 module_param(nsectors, int, 0);
 
 typedef struct p_node {
-	pid_t pid;
+	int pid;
 	struct p_node* next;
 } p_node_t;
 
@@ -93,7 +93,7 @@ static osprd_info_t osprds[NOSPRD];
 // List functions in order to implement the other stuff
 
 // Insert item into the list. 
-p_node_t* insertItem(p_node_t* list, pid_t pid)
+p_node_t* insertItem(p_node_t* list, int pid)
 {	
 	p_node_t* newElement = (p_node_t*) kzalloc(sizeof(p_node_t), GFP_ATOMIC);
 	newElement->next = NULL;
@@ -114,7 +114,7 @@ p_node_t* insertItem(p_node_t* list, pid_t pid)
 }  
 
 // Check if item is in the list
-bool checkItem(p_node_t* list, pid_t pid)
+bool checkItem(p_node_t* list, int pid)
 {
 	if (list == NULL)
 	{
@@ -134,7 +134,7 @@ bool checkItem(p_node_t* list, pid_t pid)
 }
 
 // Deletes an item from the list. Returns the first item of the list.
-p_node_t* deleteItem(p_node_t* list, pid_t pid)
+p_node_t* deleteItem(p_node_t* list, int pid)
 {
 	// If there are no items, then no item will be deleted
 	if (list == NULL)
@@ -381,7 +381,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 		if (filp_writable)
 		{
-			eprintk("TRYING FOR WRITE LOCK\n");
+			// eprintk("TRYING FOR WRITE LOCK\n");
 			// Check for deadlock - unlock and return
 			if (d->write_lock_pid == current->pid)
 			{
@@ -396,11 +396,11 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 			osp_spin_unlock(&d->mutex);
 			
-			eprintk("BEFORE WAITBLOCK\n");
-			eprintk("%d\n", d->ticket_tail);
-			eprintk("%d\n", local_ticket);
-			eprintk("write num is %d\n", d->write_num);
-			eprintk("read num is %d\n", d->read_num);
+			// eprintk("BEFORE WAITBLOCK\n");
+			// eprintk("%d\n", d->ticket_tail);
+			// eprintk("%d\n", local_ticket);
+			// eprintk("write num is %d\n", d->write_num);
+			// eprintk("read num is %d\n", d->read_num);
 		
 			if (wait_event_interruptible(d->blockq,
 						      d->ticket_tail == local_ticket && 
@@ -422,19 +422,19 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 				return -ERESTARTSYS;
 			}
-			eprintk("AFTER WAITBLOCK\n");
+			// eprintk("AFTER WAITBLOCK\n");
 
 			osp_spin_lock(&d->mutex);
 			
 			filp->f_flags |= F_OSPRD_LOCKED;		//ACQUIRE LOCK
 			d->write_num = 1; 
 			d->write_lock_pid = current->pid;  // update write lock info
-			eprintk("GOT THE WRITE LOCK\n");
+			// eprintk("GOT THE WRITE LOCK\n");
 	
 		}	
 		else
 		{
-			eprintk("TRYING FOR READ LOCK");
+			// eprintk("TRYING FOR READ LOCK");
 			// check for dead lock here
 			if (d->write_num > 0 && current->pid == d->write_lock_pid)
 			{
@@ -476,7 +476,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			d->read_lock_list = insertItem(d->read_lock_list, current->pid);
 			
 			filp->f_flags |= F_OSPRD_LOCKED;
-			eprintk("GOT THE READ LOCK");
+			// eprintk("GOT THE READ LOCK");
 
 	
 		}
@@ -501,11 +501,11 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// Otherwise, if we can grant the lock request, return 0.
 
 		// Your code here (instead of the next two lines).
-		eprintk("Attempting to try acquire\n");
+		// eprintk("Attempting to try acquire\n");
 		r = -ENOTTY;
 
 	} else if (cmd == OSPRDIOCRELEASE) {
-		eprintk("TRYING TO RELEASE");
+		// eprintk("TRYING TO RELEASE");
 		// EXERCISE: Unlock the ramdisk.
 		//
 		// If the file hasn't locked the ramdisk, return -EINVAL.
