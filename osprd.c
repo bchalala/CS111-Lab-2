@@ -44,6 +44,10 @@ MODULE_AUTHOR("Brett Chalabian and Chul Hee Woo");
 static int nsectors = 32;
 module_param(nsectors, int, 0);
 
+typedef struct p_node {
+	int pid;
+	struct p_node* next;
+} p_node_t;
 
 /* The internal representation of our device. */
 typedef struct osprd_info {
@@ -62,10 +66,13 @@ typedef struct osprd_info {
 	wait_queue_head_t blockq;       // Wait queue for tasks blocked on
 					// the device lock
 
-
+	// Keep track of write & read locks.
 	int write_num;			// Number of processes reading
 	int read_num;			// Number of processes writing
-	
+					
+	pid_t write_lock_pid;		// There can only be a single write lock
+	p_node_t* read_lock_list;	// The list of all read locks 
+		
 	/* HINT: You may want to add additional fields to help
 	         in detecting deadlock. */
 
@@ -80,6 +87,90 @@ typedef struct osprd_info {
 #define NOSPRD 4
 static osprd_info_t osprds[NOSPRD];
 
+// List functions in order to implement the other stuff
+
+// Insert item into the list. 
+p_node_t* insertItem(p_node_t* list, int pid)
+{	
+	p_node_t* newElement = (p_node_t*) malloc(sizeof(p_node_t));
+
+	if (list == NULL)
+	{
+		return newElement;
+	}
+
+	p_node_t* current = list;
+
+	while (current->next != NULL)
+		current = current->next;
+	
+	current->next = newElement;
+	return list;
+}  
+
+// Check if item is in the list
+bool checkItem(p_node_t* list, int pid)
+{
+	if (list == NULL)
+	{
+		return false;
+	}
+
+	p_node_t* current = list;
+	while (current->next != NULL)
+	{
+		if (current->pid == pid)
+			return true;
+	}
+
+	return false;
+}
+
+// Deletes an item from the list. Returns the first item of the list.
+p_node_t* deleteItem(p_node_t* list, int pid)
+{
+	// If there are no items, then no item will be deleted
+	if (list == NULL)
+		return NULL;
+
+	p_node_t* currentNode = list
+	p_node_t* nextNode = list->next;
+	if (currentNode->pid == pid)
+	{
+		free(currentNode);
+		return nextNode;
+	}
+	
+	p_node_t* prevNode;
+
+	// Case where there is only 1 element in the list
+	if (nextNode != NULL)
+	{
+		prevNode = currentNode;
+		currentNode = nextNode;
+	}
+	else
+	{
+		return list;	
+	}
+
+	// While current isn't NULL (all the elements havent been accessed)
+	while (currentNode != NULL)
+	{
+		if (currentNode->pid == pid)
+		{
+			prevNode->next = currentNode->next;
+			free(currentNode);
+			return list;
+		}
+		
+		prevNode = currentNode;
+		currentNode = currentNode->next;
+	}
+	
+	return list;
+	
+}
 
 // Declare useful helper functions
 
@@ -201,6 +292,12 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 {
 	osprd_info_t *d = file2osprd(filp);	// device info
 	int r = 0;			// return value: initially 0
+	
+	// The device returns a NULL pointer. 
+	if (d == 0)
+	{
+		return -1;
+	}
 
 	// is file open for writing?
 	int filp_writable = (filp->f_mode & FMODE_WRITE) != 0;
@@ -248,8 +345,10 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// be protected by a spinlock; which ones?)
 
 		// Your code here (instead of the next two lines).
-		eprintk("Attempting to acquire\n");
-		r = -ENOTTY;
+		local_ticket = d->ticket_head
+		d->ticket_head++;		
+
+
 
 	} else if (cmd == OSPRDIOCTRYACQUIRE) {
 
@@ -291,6 +390,11 @@ static void osprd_setup(osprd_info_t *d)
 	osp_spin_lock_init(&d->mutex);
 	d->ticket_head = d->ticket_tail = 0;
 	/* Add code here if you add fields to osprd_info_t. */
+
+	d->write_num = 0;
+	d->read_num = 0;
+	d->write_lock_pid = -1;
+	d->read_lock_list = NULL;
 }
 
 
