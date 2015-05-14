@@ -286,17 +286,19 @@ static int osprd_close_last(struct inode *inode, struct file *filp)
 			{
 				d->write_num = 0; 
 				d->write_lock_pid = -1;
-				filp->f_flags &= ~F_OSPRD_LOCKED;
 			}
 			if (checkItem(d->read_lock_list, current->pid)) 
 			{
 				d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
 				d->read_num--;
-				filp->f_flags &= ~F_OSPRD_LOCKED;
 			}
+			if (d->write_num == 0 && d->read_num == 0)
+				filp->f_flags &= ~F_OSPRD_LOCKED;
 
 			wake_up_all(&d->blockq);
 		}
+
+		
 	
 		// This line avoids compiler warnings; you may remove it.
 		(void) filp_writable, (void) d;
@@ -384,12 +386,16 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			// eprintk("TRYING FOR WRITE LOCK\n");
 			// Check for deadlock - unlock and return
 			if (d->write_lock_pid == current->pid)
-			{
+			{	
+				d->write_num = 0;
+				d->write_lock_pid = -1;
 				osp_spin_unlock(&d->mutex);
 				return -EDEADLK;
 			}
 			if (checkItem(d->read_lock_list, current->pid))
-			{
+			{	
+				d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
+				d->read_num--;
 				osp_spin_unlock(&d->mutex);
 				return -EDEADLK;
 			}
@@ -508,11 +514,14 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			// Check for deadlock - unlock and return
 			if (d->write_lock_pid == current->pid)
 			{
+				d->write_num = 0;
 				osp_spin_unlock(&d->mutex);
 				return -EBUSY;
 			}
 			if (checkItem(d->read_lock_list, current->pid))
 			{
+				d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
+				d->read_num--;
 				osp_spin_unlock(&d->mutex);
 				return -EBUSY;
 			}
@@ -570,12 +579,8 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 	
 		}
-		/* block to check condition */
-					
-		d->ticket_tail++;
-		while(checkItem(d->used_tickets, d->ticket_tail))
-			d->ticket_tail++;
 
+		/* block to check condition */
 		osp_spin_unlock(&d->mutex);
 		
 		wake_up_all(&d->blockq);
