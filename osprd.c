@@ -359,12 +359,20 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		int local_ticket = d->ticket_head;
 		d->ticket_head++;
 
-		/* Check for deadlock implementation here... */
-
-
 		if (filp_writable)
 		{
-			// check for dead lock here
+			// Check for deadlock - unlock and return
+			if (write_lock_pid == current->pid)
+			{
+				osp_spin_unlock(&d->mutex);
+				return -EDEADLK;
+			}
+			if (checkItem(d->read_lock_list, current->pid)
+			{
+				osp_spin_unlock(&d->mutex);
+				return -EDEADLK;
+			}
+
 			osp_spin_unlock(&d->mutex);
 
 			if (wait_event_interruptible(d->blockq,
