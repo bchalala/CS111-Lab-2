@@ -362,7 +362,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		if (filp_writable)
 		{
 			// Check for deadlock - unlock and return
-			if (write_lock_pid == current->pid)
+			if (d->write_lock_pid == current->pid)
 			{
 				osp_spin_unlock(&d->mutex);
 				return -EDEADLK;
@@ -377,7 +377,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 			if (wait_event_interruptible(d->blockq,
 						      d->ticket_tail == local_ticket && 
-						      d->write_num == 0 && d->read_num == 0 )
+						      d->write_num == 0 && d->read_num == 0 ))
 			{
 				osp_spin_lock(&d->mutex);
 	
@@ -385,7 +385,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 				if (d->ticket_tail == local_ticket)
 				{
 					d->ticket_tail++;
-					while(checkItem(d->used_tickets,ticket_tail))
+					while(checkItem(d->used_tickets,d->ticket_tail))
 						d->ticket_tail++;
 				}
 				else // add to list of exited tickets
@@ -405,7 +405,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		else
 		{
 			// check for dead lock here
-			if (d->write_num > 0 && current->pid == write_lock_pid)
+			if (d->write_num > 0 && current->pid == d->write_lock_pid)
 			{
 				d->write_num = 0;
 				return -EDEADLK;
@@ -413,7 +413,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			osp_spin_unlock(&d->mutex);			
 			
 			// Waits until its ticket is up and there are no other writers
-			if (wait_event_interruptible(d->blockq, write_num == 0 && local_ticket == d->ticket_tail)
+			if (wait_event_interruptible(d->blockq, d->write_num == 0 && local_ticket == d->ticket_tail))
 			{
 				// Locks because the osprd_info is being changed.
 				osp_spin_lock(&d->mutex);
@@ -443,7 +443,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			
 			// Adds to the read lock list and increments the counter.
 			d->read_num++;
-			read_lock_list = insertItem(read_lock_list, current->pid);
+			d->read_lock_list = insertItem(d->read_lock_list, current->pid);
 			
 			filp->f_flags |= F_OSPRD_LOCKED;
 
@@ -457,8 +457,8 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 
 		osp_spin_unlock(&d->mutex);
 		
-		wake_up_all(d->blockq);
-		return 0;
+		wake_up_all(&d->blockq);
+		r = 0;
 
 	} else if (cmd == OSPRDIOCTRYACQUIRE) {
 
@@ -482,8 +482,36 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// the wait queue, perform any additional accounting steps
 		// you need, and return 0.
 
-		// Your code here (instead of the next line).
-		r = -ENOTTY;
+		osp_spin_lock(&d->mutex);
+
+		if (d->write_num == 0 && d->read_num == 0)
+		{
+			osp_spin_unlock(&d->mutex);
+			return -EINVAL;
+		}
+
+		if (d->write_num > 0 && current->pid == d->write_lock_pid)
+		{
+			d->write_num = 0; d->write_lock_pid = -1;
+			//filp->f_flags &= ~F_OSPRD_LOCKED;
+		}
+		else if (checkItem(d->read_lock_list, current->pid)) 
+		{
+			d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
+			d->read_num--;
+			//filp->f_flags &= ~F_OSPRD_LOCKED;
+		}
+		//else
+		//{
+		//	osp_spin_unlock(&d->mutex);
+		//	return -EINVAL;	
+		//}
+		if (d->read_num == 0 && d->write_num == 0)
+			filp->f_flags &= ~F_OSPRD_LOCKED;
+
+		osp_spin_unlock(&d->mutex);
+		
+		r = 0;
 
 	} else
 		r = -ENOTTY; /* unknown command */
