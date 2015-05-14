@@ -46,7 +46,7 @@ static int nsectors = 32;
 module_param(nsectors, int, 0);
 
 typedef struct p_node {
-	int pid;
+	pid_t pid;
 	struct p_node* next;
 } p_node_t;
 
@@ -93,7 +93,7 @@ static osprd_info_t osprds[NOSPRD];
 // List functions in order to implement the other stuff
 
 // Insert item into the list. 
-p_node_t* insertItem(p_node_t* list, int pid)
+p_node_t* insertItem(p_node_t* list, pid_t pid)
 {	
 	p_node_t* newElement = (p_node_t*) kzalloc(sizeof(p_node_t), GFP_ATOMIC);
 	newElement->next = NULL;
@@ -114,7 +114,7 @@ p_node_t* insertItem(p_node_t* list, int pid)
 }  
 
 // Check if item is in the list
-bool checkItem(p_node_t* list, int pid)
+bool checkItem(p_node_t* list, pid_t pid)
 {
 	if (list == NULL)
 	{
@@ -134,7 +134,7 @@ bool checkItem(p_node_t* list, int pid)
 }
 
 // Deletes an item from the list. Returns the first item of the list.
-p_node_t* deleteItem(p_node_t* list, int pid)
+p_node_t* deleteItem(p_node_t* list, pid_t pid)
 {
 	// If there are no items, then no item will be deleted
 	if (list == NULL)
@@ -277,7 +277,27 @@ static int osprd_close_last(struct inode *inode, struct file *filp)
 		// as appropriate.
 
 		// Your code here.
+		if ((filp->f_flags & F_OSPRD_LOCKED) != 0)
+		{	
+			eprintk("Current PID: %d\n", current->pid);
+			eprintk("Write Lock PID: %d\n", d->write_lock_pid);
+	
+			if (d->write_num > 0 && current->pid == d->write_lock_pid)
+			{
+				d->write_num = 0; 
+				d->write_lock_pid = -1;
+				filp->f_flags &= ~F_OSPRD_LOCKED;
+			}
+			if (checkItem(d->read_lock_list, current->pid)) 
+			{
+				d->read_lock_list = deleteItem(d->read_lock_list, current->pid);
+				d->read_num--;
+				filp->f_flags &= ~F_OSPRD_LOCKED;
+			}
 
+			wake_up_all(&d->blockq);
+		}
+	
 		// This line avoids compiler warnings; you may remove it.
 		(void) filp_writable, (void) d;
 
@@ -407,7 +427,8 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 			osp_spin_lock(&d->mutex);
 			
 			filp->f_flags |= F_OSPRD_LOCKED;		//ACQUIRE LOCK
-			d->write_num = 1; d->write_lock_pid = current->pid;  // update write lock info
+			d->write_num = 1; 
+			d->write_lock_pid = current->pid;  // update write lock info
 			eprintk("GOT THE WRITE LOCK\n");
 	
 		}	
