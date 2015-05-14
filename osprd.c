@@ -94,6 +94,8 @@ static osprd_info_t osprds[NOSPRD];
 p_node_t* insertItem(p_node_t* list, int pid)
 {	
 	p_node_t* newElement = (p_node_t*) kzalloc(sizeof(p_node_t), GFP_ATOMIC);
+	newElement->next = NULL;
+	newElement->pid = pid;
 
 	if (list == NULL)
 	{
@@ -118,10 +120,12 @@ bool checkItem(p_node_t* list, int pid)
 	}
 
 	p_node_t* curr = list;
-	while (curr->next != NULL)
+	while (curr != NULL)
 	{
 		if (curr->pid == pid)
 			return true;
+		
+		curr = curr->next;
 	}
 
 	return false;
@@ -136,6 +140,7 @@ p_node_t* deleteItem(p_node_t* list, int pid)
 
 	p_node_t* currentNode = list;
 	p_node_t* nextNode = list->next;
+
 	if (currentNode->pid == pid)
 	{
 		kfree(currentNode);
