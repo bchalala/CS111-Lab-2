@@ -279,8 +279,8 @@ static int osprd_close_last(struct inode *inode, struct file *filp)
 		// Your code here.
 		if ((filp->f_flags & F_OSPRD_LOCKED) != 0)
 		{	
-			eprintk("Current PID: %d\n", current->pid);
-			eprintk("Write Lock PID: %d\n", d->write_lock_pid);
+			//eprintk("Current PID: %d\n", current->pid);
+			//eprintk("Write Lock PID: %d\n", d->write_lock_pid);
 	
 			if (d->write_num > 0 && current->pid == d->write_lock_pid)
 			{
@@ -500,9 +500,86 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// OSPRDIOCTRYACQUIRE should return -EBUSY.
 		// Otherwise, if we can grant the lock request, return 0.
 
-		// Your code here (instead of the next two lines).
-		// eprintk("Attempting to try acquire\n");
-		r = -ENOTTY;
+		osp_spin_lock(&d->mutex);
+
+		if (filp_writable)
+		{
+			// eprintk("TRYING FOR WRITE LOCK\n");
+			// Check for deadlock - unlock and return
+			if (d->write_lock_pid == current->pid)
+			{
+				osp_spin_unlock(&d->mutex);
+				return -EBUSY;
+			}
+			if (checkItem(d->read_lock_list, current->pid))
+			{
+				osp_spin_unlock(&d->mutex);
+				return -EBUSY;
+			}
+
+			// eprintk("BEFORE WAITBLOCK\n");
+			// eprintk("%d\n", d->ticket_tail);
+			// eprintk("%d\n", local_ticket);
+			// eprintk("write num is %d\n", d->write_num);
+			// eprintk("read num is %d\n", d->read_num);
+		
+			if (!(d->write_num == 0 && d->read_num == 0))
+			{
+				osp_spin_unlock(&d->mutex);
+				return -EBUSY;
+			}
+				
+			//osp_spin_unlock(&d->mutex);
+
+			// eprintk("AFTER WAITBLOCK\n");
+
+			//osp_spin_lock(&d->mutex);
+			
+			filp->f_flags |= F_OSPRD_LOCKED;		//ACQUIRE LOCK
+			d->write_num = 1; 
+			d->write_lock_pid = current->pid;  // update write lock info
+			// eprintk("GOT THE WRITE LOCK\n");
+	
+		}	
+		else
+		{
+			// eprintk("TRYING FOR READ LOCK");
+			// check for dead lock here
+			if (d->write_num > 0 && current->pid == d->write_lock_pid)
+			{
+				d->write_num = 0;
+				osp_spin_unlock(&d->mutex);
+				return -EBUSY;
+			}
+					
+			
+			if (d->write_num > 0)
+			{
+				osp_spin_unlock(&d->mutex);
+				return -EBUSY;
+			}
+		
+			
+			
+			// Adds to the read lock list and increments the counter.
+			d->read_num++;
+			d->read_lock_list = insertItem(d->read_lock_list, current->pid);
+			
+			filp->f_flags |= F_OSPRD_LOCKED;
+			// eprintk("GOT THE READ LOCK");
+
+	
+		}
+		/* block to check condition */
+					
+		d->ticket_tail++;
+		while(checkItem(d->used_tickets, d->ticket_tail))
+			d->ticket_tail++;
+
+		osp_spin_unlock(&d->mutex);
+		
+		wake_up_all(&d->blockq);
+		return 0;
 
 	} else if (cmd == OSPRDIOCRELEASE) {
 		// eprintk("TRYING TO RELEASE");
