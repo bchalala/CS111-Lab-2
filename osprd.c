@@ -13,6 +13,7 @@
 #include <linux/blkdev.h>
 #include <linux/wait.h>
 #include <linux/file.h>
+#include <stdbool.h>
 
 #include "spinlock.h"
 #include "osprd.h"
@@ -99,12 +100,12 @@ p_node_t* insertItem(p_node_t* list, int pid)
 		return newElement;
 	}
 
-	p_node_t* current = list;
+	p_node_t* curr = list;
 
-	while (current->next != NULL)
-		current = current->next;
+	while (curr->next != NULL)
+		curr = curr->next;
 	
-	current->next = newElement;
+	curr->next = newElement;
 	return list;
 }  
 
@@ -116,10 +117,10 @@ bool checkItem(p_node_t* list, int pid)
 		return false;
 	}
 
-	p_node_t* current = list;
-	while (current->next != NULL)
+	p_node_t* curr = list;
+	while (curr->next != NULL)
 	{
-		if (current->pid == pid)
+		if (curr->pid == pid)
 			return true;
 	}
 
@@ -345,7 +346,7 @@ int osprd_ioctl(struct inode *inode, struct file *filp,
 		// be protected by a spinlock; which ones?)
 
 		// Your code here (instead of the next two lines).
-		local_ticket = d->ticket_head
+		int local_ticket = d->ticket_head;
 		d->ticket_head++;		
 
 
